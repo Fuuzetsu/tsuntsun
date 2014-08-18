@@ -4,6 +4,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module Main where
 
+import Data.Map
 import           Control.Applicative ((<$>))
 import           Control.Concurrent
 import           Control.Monad
@@ -33,6 +34,22 @@ data Notifier a = Notifier { _in :: MVar a
                            , _img :: MVar Image
                            }
 
+data ImageMode = Column | Vertical | Block | Line
+               | Word | CircledCharacter | Character
+               deriving (Eq, Show, Ord)
+
+modes :: Map ImageMode Int
+modes = fromList
+  [ (Column          , 4)
+  , (Vertical        , 5)
+  , (Block           , 6)
+  , (Line            , 7)
+  , (Word            , 8)
+  , (CircledCharacter, 9)
+  , (Character       , 10)
+  ]
+
+
 condM :: Monad m => (a -> t -> m b) -> m a -> t -> m b
 condM c p a = p >>= \p' -> c p' a
 
@@ -53,10 +70,14 @@ runWindow n = do
   window <- getObj castToWindow "mainWindow"
   textArea <- getObj castToTextView "textArea"
   image <- getObj castToImage "imageArea"
-  _pane <- getObj castToPaned "imageTextPane"
+  aboutDialog <- getObj castToDialog "aboutDialog"
 
-  -- aboutButton <- getObj castToButton "aboutButton"
-  -- quitButton <- getObj castToButton "quitButton"
+  --snipButton <- getObj castToMenuButton "snipButton"
+  aboutButton <- getObj castToButton "aboutButton"
+  quitButton <- getObj castToButton "quitButton"
+
+  onEv buttonActivated mainQuit quitButton
+  onEv buttonActivated (widgetShow aboutDialog) aboutButton
 
   mapM_ ($ window) [ onEv keyPressEvent keyPressed
                    , onEv destroyEvent . tryEvent $ liftIO mainQuit
@@ -147,7 +168,7 @@ onInputChange n = forever $ do
   i <- eventToFp <$> takeMVar (_in n)
   img <- imageNewFromFile (encodeString i)
   _ <- tryPutMVar (_img n) img
-  runTesseract (_tesseract n) (encodeString i) (_outputFile n)
+  runTesseract (_tesseract n) (encodeString i) (_outputFile n) (Just Vertical)
 
 onOutputChange :: Notifier Event -> IO ()
 onOutputChange n = forever $ do
@@ -160,11 +181,15 @@ onOutputChange n = forever $ do
 runTesseract :: I.FilePath -- ^ Path to tesseract binary to use.
              -> I.FilePath -- ^ Path to the image with text to OCR.
              -> I.FilePath -- ^ Base path to output the result to.
-                         -- tesseract will append ‘.txt’ suffix to
-                         -- this.
+                           -- tesseract will append ‘.txt’ suffix to
+                           -- this.
+             -> Maybe ImageMode
              -> IO ()
-runTesseract t i o =
-  spawnProcess t ["-psm", "5", "-l", "jpn", i, o] >>= void . waitForProcess
+runTesseract t i o im =
+  let p = case im of
+        Nothing -> ["-psm", "5"]
+        Just m -> "-psm" : [show $ modes ! m]
+  in spawnProcess t (p ++ ["-l", "jpn", i, o]) >>= void . waitForProcess
 
 toFP :: String -> FilePath
 toFP = fromText . pack

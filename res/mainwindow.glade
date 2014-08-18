@@ -2,6 +2,85 @@
 <!-- Generated with glade 3.16.1 -->
 <interface>
   <requires lib="gtk+" version="3.10"/>
+  <object class="GtkAboutDialog" id="aboutDialog">
+    <property name="can_focus">False</property>
+    <property name="type_hint">dialog</property>
+    <property name="gravity">north</property>
+    <property name="use_header_bar">1</property>
+    <property name="program_name">tsuntsun</property>
+    <property name="version">0.1.0.0</property>
+    <property name="copyright" translatable="yes">© Mateusz Kowalczyk, 2014</property>
+    <property name="comments" translatable="yes">A GTK3 front-end to ‘tesseract’, hoping to make reading raw manga easier.</property>
+    <property name="website">https://github.com/Fuuzetsu/tsuntsun</property>
+    <property name="website_label" translatable="yes">https://github.com/Fuuzetsu/tsuntsun</property>
+    <property name="authors">Mateusz Kowalczyk (Fūzetsu)</property>
+    <property name="logo_icon_name"/>
+    <property name="license_type">gpl-3-0</property>
+    <child internal-child="vbox">
+      <object class="GtkBox" id="aboutdialog-vbox">
+        <property name="can_focus">False</property>
+        <property name="orientation">vertical</property>
+        <property name="spacing">2</property>
+        <child internal-child="action_area">
+          <object class="GtkButtonBox" id="aboutdialog-action_area">
+            <property name="can_focus">False</property>
+            <property name="layout_style">end</property>
+            <child>
+              <placeholder/>
+            </child>
+            <child>
+              <placeholder/>
+            </child>
+          </object>
+          <packing>
+            <property name="expand">False</property>
+            <property name="fill">True</property>
+            <property name="pack_type">end</property>
+            <property name="position">0</property>
+          </packing>
+        </child>
+        <child>
+          <placeholder/>
+        </child>
+      </object>
+    </child>
+  </object>
+  <object class="GtkMenu" id="snipMenu">
+    <property name="visible">True</property>
+    <property name="can_focus">False</property>
+    <child>
+      <object class="GtkMenuItem" id="columnMenuItem">
+        <property name="visible">True</property>
+        <property name="can_focus">False</property>
+        <property name="label" translatable="yes">Column</property>
+        <property name="use_underline">True</property>
+      </object>
+    </child>
+    <child>
+      <object class="GtkMenuItem" id="verticalMenuItem">
+        <property name="visible">True</property>
+        <property name="can_focus">False</property>
+        <property name="label" translatable="yes">Vertical</property>
+        <property name="use_underline">True</property>
+      </object>
+    </child>
+    <child>
+      <object class="GtkMenuItem" id="blockMenuItem">
+        <property name="visible">True</property>
+        <property name="can_focus">False</property>
+        <property name="label" translatable="yes">Block</property>
+        <property name="use_underline">True</property>
+      </object>
+    </child>
+    <child>
+      <object class="GtkMenuItem" id="characterMenuItem">
+        <property name="visible">True</property>
+        <property name="can_focus">False</property>
+        <property name="label" translatable="yes">Single character</property>
+        <property name="use_underline">True</property>
+      </object>
+    </child>
+  </object>
   <object class="GtkWindow" id="mainWindow">
     <property name="can_focus">False</property>
     <child>
@@ -61,8 +140,8 @@
             <property name="can_focus">False</property>
             <property name="homogeneous">True</property>
             <child>
-              <object class="GtkButton" id="aboutButton">
-                <property name="label" translatable="yes">About</property>
+              <object class="GtkButton" id="quitButton">
+                <property name="label" translatable="yes">Quit</property>
                 <property name="visible">True</property>
                 <property name="can_focus">True</property>
                 <property name="receives_default">True</property>
@@ -74,8 +153,8 @@
               </packing>
             </child>
             <child>
-              <object class="GtkButton" id="quitButton">
-                <property name="label" translatable="yes">Quit</property>
+              <object class="GtkButton" id="aboutButton">
+                <property name="label" translatable="yes">About</property>
                 <property name="visible">True</property>
                 <property name="can_focus">True</property>
                 <property name="receives_default">True</property>
@@ -86,10 +165,28 @@
                 <property name="position">1</property>
               </packing>
             </child>
+            <child>
+              <object class="GtkMenuButton" id="snipButton">
+                <property name="visible">True</property>
+                <property name="can_focus">True</property>
+                <property name="receives_default">True</property>
+                <property name="popup">snipMenu</property>
+                <property name="direction">up</property>
+                <property name="use_popover">True</property>
+                <child>
+                  <placeholder/>
+                </child>
+              </object>
+              <packing>
+                <property name="expand">False</property>
+                <property name="fill">True</property>
+                <property name="position">2</property>
+              </packing>
+            </child>
           </object>
           <packing>
             <property name="expand">False</property>
-            <property name="fill">True</property>
+            <property name="fill">False</property>
             <property name="position">1</property>
           </packing>
         </child>
