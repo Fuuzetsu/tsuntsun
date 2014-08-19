@@ -21,7 +21,7 @@ import           Prelude hiding (FilePath, readFile)
 import           System.Directory (doesDirectoryExist, createDirectoryIfMissing,
                                    doesFileExist)
 import           System.Environment (getArgs)
-import           System.Exit (exitWith, ExitCode(..))
+import           System.Exit (exitWith, ExitCode(..), exitSuccess)
 import           System.FSNotify (Event(..), watchDir, withManager)
 import           System.IO.Temp (withSystemTempFile)
 import           System.Process (spawnProcess, waitForProcess)
@@ -32,6 +32,7 @@ data Notifier a = Notifier { _in :: MVar a
                            , _outputFile :: I.FilePath
                            , _ocrResult :: MVar Text
                            , _img :: MVar Image
+                           , _ocrMode :: MVar ImageMode
                            }
 
 data ImageMode = Column | Vertical | Block | Line
@@ -72,15 +73,32 @@ runWindow n = do
   image <- getObj castToImage "imageArea"
   aboutDialog <- getObj castToDialog "aboutDialog"
 
-  --snipButton <- getObj castToMenuButton "snipButton"
   aboutButton <- getObj castToButton "aboutButton"
   quitButton <- getObj castToButton "quitButton"
+
+  verticalRadio <- getObj castToRadioButton "verticalRadio"
+  columnRadio <- getObj castToRadioButton "columnRadio"
+  blockRadio <- getObj castToRadioButton "blockRadio"
+  circledCharacterRadio <- getObj castToRadioButton "circledCharacterRadio"
+  characterRadio <- getObj castToRadioButton "characterRadio"
+
+  let rs = zip [ columnRadio, verticalRadio, blockRadio
+               , circledCharacterRadio, characterRadio ]
+               [ Column, Vertical, Block
+               , CircledCharacter, Character ]
+      radioConnect (r, m) = onEv toggled (radioToggled n r m) r
+
+  mapM_ radioConnect rs
+
+  toggleButtonSetActive verticalRadio True
 
   onEv buttonActivated mainQuit quitButton
   onEv buttonActivated (widgetShow aboutDialog) aboutButton
 
+
   mapM_ ($ window) [ onEv keyPressEvent keyPressed
                    , onEv destroyEvent . tryEvent $ liftIO mainQuit
+                   , onEv deleteEvent . tryEvent $ liftIO mainQuit
                    ]
 
   -- Update text
@@ -97,6 +115,9 @@ runWindow n = do
   widgetShowAll window
   mainGUI
 
+radioToggled :: Notifier Event -> RadioButton -> ImageMode -> IO ()
+radioToggled Notifier { _ocrMode = o } r m =
+  whenM (toggleButtonGetActive r) $ takeMVar o >> putMVar o m
 
 onEv :: Signal object s -> s -> object -> IO (ConnectId object)
 onEv v r x = x `on` v $ r
@@ -131,6 +152,7 @@ run i t = do
   whenM (doesDirectoryExist i) $ directoryExit
   (inm, outm, ocrr, imgm) <- liftM4 (,,,) newEmptyMVar newEmptyMVar
                                           newEmptyMVar newEmptyMVar
+  ocrm <- newMVar Vertical
 
   o <- tmpFilename
   let n = Notifier { _in = inm
@@ -139,6 +161,7 @@ run i t = do
                    , _tesseract = fromMaybe "tesseract" t
                    , _ocrResult = ocrr
                    , _img = imgm
+                   , _ocrMode = ocrm
                    }
 
   -- Watch input/output files
@@ -168,7 +191,8 @@ onInputChange n = forever $ do
   i <- eventToFp <$> takeMVar (_in n)
   img <- imageNewFromFile (encodeString i)
   _ <- tryPutMVar (_img n) img
-  runTesseract (_tesseract n) (encodeString i) (_outputFile n) (Just Vertical)
+  m <- readMVar (_ocrMode n)
+  runTesseract (_tesseract n) (encodeString i) (_outputFile n) m
 
 onOutputChange :: Notifier Event -> IO ()
 onOutputChange n = forever $ do
@@ -183,12 +207,10 @@ runTesseract :: I.FilePath -- ^ Path to tesseract binary to use.
              -> I.FilePath -- ^ Base path to output the result to.
                            -- tesseract will append ‘.txt’ suffix to
                            -- this.
-             -> Maybe ImageMode
+             -> ImageMode
              -> IO ()
 runTesseract t i o im =
-  let p = case im of
-        Nothing -> ["-psm", "5"]
-        Just m -> "-psm" : [show $ modes ! m]
+  let p = "-psm" : [show $ modes ! im]
   in spawnProcess t (p ++ ["-l", "jpn", i, o]) >>= void . waitForProcess
 
 toFP :: String -> FilePath
