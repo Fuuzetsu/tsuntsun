@@ -96,7 +96,7 @@ runWindow n = do
 
   onEv buttonActivated mainQuit quitButton
   onEv buttonActivated (widgetShow aboutDialog) aboutButton
-  onEv buttonActivated (runScrot $ _inputFile n) scrotButton
+  onEv buttonActivated (void . forkIO . runScrot $ _inputFile n) scrotButton
 
   buttonSetLabel scrotButton ("scrot -s " ++ _inputFile n)
 
