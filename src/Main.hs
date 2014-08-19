@@ -30,6 +30,7 @@ data Notifier a = Notifier { _in :: MVar a
                            , _out :: MVar a
                            , _tesseract :: I.FilePath
                            , _outputFile :: I.FilePath
+                           , _inputFile :: I.FilePath
                            , _ocrResult :: MVar Text
                            , _img :: MVar Image
                            , _ocrMode :: MVar ImageMode
@@ -73,6 +74,7 @@ runWindow n = do
   image <- getObj castToImage "imageArea"
   aboutDialog <- getObj castToDialog "aboutDialog"
 
+  scrotButton <- getObj castToButton "scrotButton"
   aboutButton <- getObj castToButton "aboutButton"
   quitButton <- getObj castToButton "quitButton"
 
@@ -94,7 +96,9 @@ runWindow n = do
 
   onEv buttonActivated mainQuit quitButton
   onEv buttonActivated (widgetShow aboutDialog) aboutButton
+  onEv buttonActivated (runScrot $ _inputFile n) scrotButton
 
+  buttonSetLabel scrotButton ("scrot -s " ++ _inputFile n)
 
   mapM_ ($ window) [ onEv keyPressEvent keyPressed
                    , onEv destroyEvent . tryEvent $ liftIO mainQuit
@@ -158,6 +162,7 @@ run i t = do
   let n = Notifier { _in = inm
                    , _out = outm
                    , _outputFile = o
+                   , _inputFile = i
                    , _tesseract = fromMaybe "tesseract" t
                    , _ocrResult = ocrr
                    , _img = imgm
@@ -167,12 +172,8 @@ run i t = do
   -- Watch input/output files
   _ <- forkIO $ watchFile (toFP i) inm
   _ <- forkIO $ watchFile (toFP o <.> ext) outm
-
-  putStrLn "Started watching…"
   _ <- forkIO $ onInputChange n
   _ <- forkIO $ onOutputChange n
-
-  putStrLn "Change triggers forked."
 
   runWindow n
 
@@ -199,6 +200,9 @@ onOutputChange n = forever $ do
   o <- eventToFp <$> takeMVar (_out n)
   c <- readFile (encodeString o)
   putMVar (_ocrResult n) c
+
+runScrot :: I.FilePath -> IO ()
+runScrot p = spawnProcess "scrot" ["-s", p] >>= void . waitForProcess
 
 -- | Runs the tesseract process. Blocks to clean up the process or we
 -- end up with zombies.
