@@ -17,7 +17,8 @@ executable tsuntsun
   main-is:             Main.hs
   other-modules:       NaturalLanguageProcess.TsunTsun.TH
   -- other-extensions:
-  build-depends:       base >=4.5 && <5, system-filepath, temporary, gtk3, fs-notify,
-                       system-filepath, temporary, glib
+  build-depends:       base >=4.5 && <5, system-filepath, temporary, gtk3, fsnotify,
+                       system-filepath, temporary, glib, process, directory, text, containers,
+                       template-haskell, transformers
   hs-source-dirs:      src
   default-language:    Haskell2010
