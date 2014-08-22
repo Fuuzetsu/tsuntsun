@@ -15,7 +15,7 @@ cabal-version:       >=1.10
 
 executable tsuntsun
   main-is:             Main.hs
-  other-modules:       NaturalLanguageProcess.TsunTsun.TH
+  other-modules:       NaturalLanguageProcessing.TsunTsun.TH
   -- other-extensions:
   build-depends:       base >=4.5 && <5, system-filepath, temporary, gtk3, fsnotify,
                        system-filepath, temporary, glib, process, directory, text, containers,
