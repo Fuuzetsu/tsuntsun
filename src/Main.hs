@@ -106,15 +106,14 @@ runWindow n = do
                    ]
 
   -- Update text
-  _ <- forkIO . forever $ do
-    t <- takeMVar (_ocrResult n)
+  _ <- forkIO . forever $ takeMVar (_ocrResult n) >>= \t -> postGUIAsync $ do
     bn <- textViewGetBuffer textArea
     textBufferSetText bn t
 
   -- Update image
   _ <- forkIO . forever $ do
     image' <- takeMVar (_img n) >>= imageGetPixbuf
-    imageSetFromPixbuf image image'
+    postGUIAsync $ imageSetFromPixbuf image image'
 
   widgetShowAll window
   mainGUI
