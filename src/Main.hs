@@ -2,39 +2,39 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-module Main where
+{-# LANGUAGE BangPatterns #-}
+module Main (main) where
 
-import Data.Map
 import           Control.Applicative ((<$>))
 import           Control.Concurrent
+import qualified Control.Concurrent.STM as STM
 import           Control.Monad
 import           Control.Monad.IO.Class (liftIO)
+import           Data.Map
 import           Data.Maybe (fromMaybe)
 import           Data.Text (pack, Text)
 import           Data.Text.IO (readFile)
-import           Filesystem.Path.CurrentOS (FilePath, encodeString, decodeString,
-                                            fromText, (<.>), dirname, directory)
-import qualified GHC.IO as I (FilePath)
+import qualified Filesystem.Path.CurrentOS as FP
 import           Graphics.UI.Gtk
 import           NaturalLanguageProcessing.TsunTsun.TH (litFile)
-import           Prelude hiding (FilePath, readFile)
-import           System.Directory (doesDirectoryExist, createDirectoryIfMissing,
-                                   doesFileExist)
+import           Prelude hiding (readFile)
+import           System.Directory (doesDirectoryExist, createDirectoryIfMissing, doesFileExist)
 import           System.Environment (getArgs)
-import           System.Exit (exitWith, ExitCode(..), exitSuccess)
+import           System.Exit (exitWith, ExitCode(..))
 import           System.FSNotify (Event(..), watchDir, withManager)
 import           System.IO.Temp (withSystemTempFile)
-import           System.Process (spawnProcess, waitForProcess)
+import qualified System.Process.Typed as P
 
-data Notifier a = Notifier { _in :: MVar a
-                           , _out :: MVar a
-                           , _tesseract :: I.FilePath
-                           , _outputFile :: I.FilePath
-                           , _inputFile :: I.FilePath
-                           , _ocrResult :: MVar Text
-                           , _img :: MVar Image
-                           , _ocrMode :: MVar ImageMode
-                           }
+data Notifier = Notifier
+ { _in :: !(STM.TVar (Maybe Event))
+ , _out :: !(STM.TVar (Maybe Event))
+ , _tesseract :: FilePath
+ , _outputFile :: FilePath
+ , _inputFile :: FilePath
+ , _ocrResult :: !(STM.TVar (Maybe Text))
+ , _img :: !(STM.TVar (Maybe Image))
+ , _ocrMode :: !(STM.TVar ImageMode)
+ }
 
 data ImageMode = Column | Vertical | Block | Line
                | Word | CircledCharacter | Character
@@ -61,7 +61,7 @@ whenM = condM when
 unlessM :: Monad m => m Bool -> m () -> m ()
 unlessM = condM unless
 
-runWindow :: Notifier Event -> IO ()
+runWindow :: Notifier -> IO ()
 runWindow n = do
   _ <- initGUI
   b <- builderNew
@@ -94,9 +94,9 @@ runWindow n = do
 
   toggleButtonSetActive verticalRadio True
 
-  onEv buttonActivated mainQuit quitButton
-  onEv buttonActivated (widgetShow aboutDialog) aboutButton
-  onEv buttonActivated (void . forkIO . runScrot $ _inputFile n) scrotButton
+  _ <- onEv buttonActivated mainQuit quitButton
+  _ <- onEv buttonActivated (widgetShow aboutDialog) aboutButton
+  _ <- onEv buttonActivated (void . forkIO . runScrot $ _inputFile n) scrotButton
 
   buttonSetLabel scrotButton ("scrot -s " ++ _inputFile n)
 
@@ -106,21 +106,29 @@ runWindow n = do
                    ]
 
   -- Update text
-  _ <- forkIO . forever $ takeMVar (_ocrResult n) >>= \t -> postGUIAsync $ do
-    bn <- textViewGetBuffer textArea
-    textBufferSetText bn t
+  _ <- forkIO . forever $ do
+    t <- takeFull $ _ocrResult n
+    postGUIAsync $ do
+      bn <- textViewGetBuffer textArea
+      textBufferSetText bn t
 
   -- Update image
   _ <- forkIO . forever $ do
-    image' <- takeMVar (_img n) >>= imageGetPixbuf
+    image' <- takeFull (_img n) >>= imageGetPixbuf
     postGUIAsync $ imageSetFromPixbuf image image'
 
   widgetShowAll window
   mainGUI
 
-radioToggled :: Notifier Event -> RadioButton -> ImageMode -> IO ()
-radioToggled Notifier { _ocrMode = o } r m =
-  whenM (toggleButtonGetActive r) $ takeMVar o >> putMVar o m
+-- | Wait until a 'STM.TVar' contains a value.
+takeFull :: STM.TVar (Maybe a) -> IO a
+takeFull v = STM.atomically $ STM.readTVar v >>= \case
+  Nothing -> STM.retry
+  Just a -> STM.writeTVar v Nothing >> pure a
+
+radioToggled :: Notifier -> RadioButton -> ImageMode -> IO ()
+radioToggled Notifier { _ocrMode = o } r m = whenM (toggleButtonGetActive r) $ do
+  STM.atomically $ STM.writeTVar o m
 
 onEv :: Signal object s -> s -> object -> IO (ConnectId object)
 onEv v r x = x `on` v $ r
@@ -133,11 +141,11 @@ keyPressed = tryEvent $ do
   "q" <- eventKeyName
   liftIO mainQuit
 
-ensureFile :: FilePath -> IO ()
+ensureFile :: FP.FilePath -> IO ()
 ensureFile f = do
-  let d = dirname f
-      f' = encodeString f
-  createDirectoryIfMissing True (encodeString d)
+  let d = FP.dirname f
+      f' = FP.encodeString f
+  createDirectoryIfMissing True (FP.encodeString d)
   unlessM (doesFileExist f') $ writeFile f' ""
 
 main :: IO ()
@@ -150,12 +158,13 @@ main = getArgs >>= \case
 ext :: Text
 ext = pack "txt"
 
-run :: I.FilePath -> Maybe I.FilePath -> IO ()
+run :: FilePath -> Maybe FilePath -> IO ()
 run i t = do
   whenM (doesDirectoryExist i) $ directoryExit
-  (inm, outm, ocrr, imgm) <- liftM4 (,,,) newEmptyMVar newEmptyMVar
-                                          newEmptyMVar newEmptyMVar
-  ocrm <- newMVar Vertical
+
+  (inm, outm, ocrr, imgm) <- liftM4 (,,,) (STM.newTVarIO Nothing) (STM.newTVarIO Nothing)
+                                          (STM.newTVarIO Nothing) (STM.newTVarIO Nothing)
+  ocrm <- STM.newTVarIO Vertical
 
   o <- tmpFilename
   let n = Notifier { _in = inm
@@ -170,7 +179,7 @@ run i t = do
 
   -- Watch input/output files
   _ <- forkIO $ watchFile (toFP i) inm
-  _ <- forkIO $ watchFile (toFP o <.> ext) outm
+  _ <- forkIO $ watchFile (toFP o FP.<.> ext) outm
   _ <- forkIO $ onInputChange n
   _ <- forkIO $ onOutputChange n
 
@@ -178,46 +187,45 @@ run i t = do
 
 -- | We cheat a bit here and use withSystemTempFile to give us the
 -- name and hope the suffixed version is free.
-tmpFilename :: IO I.FilePath
+tmpFilename :: IO FilePath
 tmpFilename = withSystemTempFile "tsuntsun" (const . return)
 
-eventToFp :: Event -> I.FilePath
+eventToFp :: Event -> FilePath
 eventToFp (Added    f _) = f
 eventToFp (Modified f _) = f
 eventToFp (Removed  f _) = f
 
-onInputChange :: Notifier Event -> IO ()
+onInputChange :: Notifier -> IO ()
 onInputChange n = forever $ do
-  i <- eventToFp <$> takeMVar (_in n)
-  img <- imageNewFromFile i
-  _ <- tryPutMVar (_img n) img
-  m <- readMVar (_ocrMode n)
+  i <- eventToFp <$> takeFull (_in n)
+  !img <- imageNewFromFile i
+  STM.atomically $ STM.writeTVar (_img n) (Just img)
+  m <- STM.atomically $ STM.readTVar (_ocrMode n)
   runTesseract (_tesseract n) i (_outputFile n) m
 
-onOutputChange :: Notifier Event -> IO ()
+onOutputChange :: Notifier -> IO ()
 onOutputChange n = forever $ do
-  o <- eventToFp <$> takeMVar (_out n)
-  c <- readFile o
-  putMVar (_ocrResult n) c
+  o <- eventToFp <$> takeFull (_out n)
+  !c <- readFile o
+  STM.atomically $ STM.writeTVar (_ocrResult n) (Just c)
 
-runScrot :: I.FilePath -> IO ()
-runScrot p = spawnProcess "scrot" ["-s", p] >>= void . waitForProcess
+runScrot :: FilePath -> IO ()
+runScrot p = P.runProcess_ $ P.proc "scrot" ["-s", p]
 
 -- | Runs the tesseract process. Blocks to clean up the process or we
 -- end up with zombies.
-runTesseract :: I.FilePath -- ^ Path to tesseract binary to use.
-             -> I.FilePath -- ^ Path to the image with text to OCR.
-             -> I.FilePath -- ^ Base path to output the result to.
+runTesseract :: FilePath -- ^ Path to tesseract binary to use.
+             -> FilePath -- ^ Path to the image with text to OCR.
+             -> FilePath -- ^ Base path to output the result to.
                            -- tesseract will append ‘.txt’ suffix to
                            -- this.
              -> ImageMode
              -> IO ()
 runTesseract t i o im =
-  let p = "-psm" : [show $ modes ! im]
-  in spawnProcess t (p ++ ["-l", "jpn", i, o]) >>= void . waitForProcess
+  P.runProcess_ . P.proc t $ "-psm" : show (modes ! im) : ["-l", "jpn", i, o]
 
-toFP :: String -> FilePath
-toFP = fromText . pack
+toFP :: String -> FP.FilePath
+toFP = FP.fromText . pack
 
 -- | Exit function used when given a directory.
 directoryExit :: IO ()
@@ -229,10 +237,11 @@ directoryExit = do
 help :: String
 help = "usage: tsuntsun image-watch-filename [tesseract-path]"
 
--- | Watches the file at specified path and puts into the MVar when
+-- | Watches the file at specified path and puts into the 'STM.TVar' when
 -- its state is updated. Creates the file if it does not yet exist.
-watchFile :: FilePath -> MVar Event -> IO ()
+watchFile :: FP.FilePath -> STM.TVar (Maybe Event) -> IO ()
 watchFile f m = withManager $ \mgr -> do
   ensureFile f
-  watchDir mgr (encodeString $ directory f) ((f ==) . decodeString . eventToFp) (void . tryPutMVar m)
+  _ <- watchDir mgr (FP.encodeString $ FP.directory f) ((f ==) . FP.decodeString . eventToFp)
+                    (STM.atomically . STM.writeTVar m . Just)
   forever $ threadDelay maxBound
