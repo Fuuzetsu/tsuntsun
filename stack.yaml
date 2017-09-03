@@ -1,0 +1,16 @@
+resolver: lts-9.2
+packages:
+- .
+extra-deps: []
+skip-ghc-check: true
+flags: {}
+
+extra-package-dbs: []
+
+nix:
+  enable: true
+  # If we use custom shell with buildStackProject, locale gets set
+  # properly.
+  shell-file: shell.nix
+
+system-ghc: true

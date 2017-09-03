@@ -12,7 +12,7 @@ import           Control.Monad.IO.Class (liftIO)
 import           Data.Maybe (fromMaybe)
 import           Data.Text (pack, Text)
 import           Data.Text.IO (readFile)
-import           Filesystem.Path.CurrentOS (FilePath, encodeString,
+import           Filesystem.Path.CurrentOS (FilePath, encodeString, decodeString,
                                             fromText, (<.>), dirname, directory)
 import qualified GHC.IO as I (FilePath)
 import           Graphics.UI.Gtk
@@ -181,7 +181,7 @@ run i t = do
 tmpFilename :: IO I.FilePath
 tmpFilename = withSystemTempFile "tsuntsun" (const . return)
 
-eventToFp :: Event -> FilePath
+eventToFp :: Event -> I.FilePath
 eventToFp (Added    f _) = f
 eventToFp (Modified f _) = f
 eventToFp (Removed  f _) = f
@@ -189,15 +189,15 @@ eventToFp (Removed  f _) = f
 onInputChange :: Notifier Event -> IO ()
 onInputChange n = forever $ do
   i <- eventToFp <$> takeMVar (_in n)
-  img <- imageNewFromFile (encodeString i)
+  img <- imageNewFromFile i
   _ <- tryPutMVar (_img n) img
   m <- readMVar (_ocrMode n)
-  runTesseract (_tesseract n) (encodeString i) (_outputFile n) m
+  runTesseract (_tesseract n) i (_outputFile n) m
 
 onOutputChange :: Notifier Event -> IO ()
 onOutputChange n = forever $ do
   o <- eventToFp <$> takeMVar (_out n)
-  c <- readFile (encodeString o)
+  c <- readFile o
   putMVar (_ocrResult n) c
 
 runScrot :: I.FilePath -> IO ()
@@ -234,5 +234,5 @@ help = "usage: tsuntsun image-watch-filename [tesseract-path]"
 watchFile :: FilePath -> MVar Event -> IO ()
 watchFile f m = withManager $ \mgr -> do
   ensureFile f
-  watchDir mgr (directory f) ((f ==) . eventToFp) (void . tryPutMVar m)
+  watchDir mgr (encodeString $ directory f) ((f ==) . decodeString . eventToFp) (void . tryPutMVar m)
   forever $ threadDelay maxBound
