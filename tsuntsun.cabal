@@ -18,17 +18,19 @@ executable tsuntsun
   main-is:             Main.hs
   other-modules:       NaturalLanguageProcessing.TsunTsun.TH
   build-depends:       base
+                     , conduit
+                     , conduit-combinators
+                     , conduit-extra
                      , containers
                      , directory
                      , fsnotify
                      , glib
                      , gtk3
                      , process
+                     , resourcet
                      , stm
                      , system-filepath
-                     , system-filepath
                      , template-haskell
-                     , temporary
                      , temporary
                      , text
                      , transformers
