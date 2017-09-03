@@ -13,7 +13,6 @@ import           Control.Monad.IO.Class (liftIO)
 import           Data.Maybe (fromMaybe)
 import           Data.Text (Text)
 import           Data.Text as T
-import qualified Data.Text.IO as T
 import qualified Filesystem.Path.CurrentOS as FP
 import           Graphics.UI.Gtk
 import           NaturalLanguageProcessing.TsunTsun.TH (litFile)
@@ -29,7 +28,6 @@ import qualified Control.Monad.Trans.Resource as R
 
 data Notifier = Notifier
  { _in :: !(STM.TVar (Maybe Event))
- , _out :: !(STM.TVar (Maybe Event))
  , _tesseract :: FilePath
  , _inputFile :: FilePath
  , _ocrResult :: !(STM.TVar (Maybe Text))
@@ -39,7 +37,7 @@ data Notifier = Notifier
 
 data ImageMode = Column | Vertical | Block | Line
                | Word | CircledCharacter | Character
-               deriving (Eq, Show, Ord)
+  deriving (Eq, Show, Ord)
 
 modeToPsm :: ImageMode -> Int
 modeToPsm Column = 4
@@ -149,12 +147,10 @@ run i t = do
     True -> directoryExit
     False -> pure ()
 
-  (inm, outm, ocrr, imgm) <- liftM4 (,,,) (STM.newTVarIO Nothing) (STM.newTVarIO Nothing)
-                                          (STM.newTVarIO Nothing) (STM.newTVarIO Nothing)
+  (inm, ocrr, imgm) <- liftM3 (,,) (STM.newTVarIO Nothing) (STM.newTVarIO Nothing) (STM.newTVarIO Nothing)
   ocrm <- STM.newTVarIO Vertical
 
   let n = Notifier { _in = inm
-                   , _out = outm
                    , _inputFile = i
                    , _tesseract = fromMaybe "tesseract" t
                    , _ocrResult = ocrr
@@ -165,7 +161,6 @@ run i t = do
   -- Watch input/output files
   _ <- forkIO $ watchFile (toFP i) inm
   _ <- forkIO $ onInputChange n
-  _ <- forkIO $ onOutputChange n
 
   runWindow n
 
@@ -181,12 +176,6 @@ onInputChange n = forever $ do
   STM.atomically $ STM.writeTVar (_img n) (Just img)
   m <- STM.atomically $ STM.readTVar (_ocrMode n)
   runTesseract (_tesseract n) i (_ocrResult n) m
-
-onOutputChange :: Notifier -> IO ()
-onOutputChange n = forever $ do
-  o <- eventToFp <$> takeFull (_out n)
-  !c <- T.readFile o
-  STM.atomically $ STM.writeTVar (_ocrResult n) (Just c)
 
 runScrot :: FilePath -> IO ()
 runScrot p = P.runProcess_ $ P.proc "scrot" ["-s", p]
